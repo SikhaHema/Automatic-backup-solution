@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# CRON Job script for automated backup
+# Script which can be added in cron tab
+
+files=`find ~/automate -name "*.json"`
+
+# Get the path to this directory
+dirn=$(dirname $0)
+for x in $files
+do
+	python ${dirn}/parse_json.py $x | ${dirn}/backup_script
+done

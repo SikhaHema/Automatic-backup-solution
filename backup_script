@@ -1,0 +1,94 @@
+#!/bin/bash
+
+# Initialize Global Variables
+db_name=
+mysql_pass=
+mysql_user=
+server_ip=
+server_key_file=
+server_user=
+server_pass=
+server_path=
+project=
+project_dir=
+
+# Read the values parsed from json file
+read -p "DB Name: " db_name
+read -p "Mysql user pass: " mysql_pass
+read -p "Mysql user name: " mysql_user
+read -p "Project: " project
+read -p "Project Dir: " project_dir
+
+read -p "Backup Server IP: " server_ip
+read -p "Backup Server Key File: " server_key_file
+read -p "Backup Server User-pass: " server_pass
+read -p "Backup Server path: " server_path # path can be relative to user or full-path 
+# path should exist on remote server otherwise error will be thrown
+read -p "Backup Server User: " server_user
+
+mkdir -p ~/automate/${project}
+backup_file=~/automate/${project}.tar
+
+# Take a backup of mysql database if db exists
+backup_mysql() {
+	if [[ -z "$db_name" ]]; then
+		return 1;
+	fi
+	echo "------------ Backup MYSQL -----------"
+	mysqldump -u ${mysql_user} -p${mysql_pass} ${db_name} > ~/automate/${project}/${db_name}.sql
+}
+
+# Make a compressed tar file of the project
+make_tar() {
+	echo "------------ Making TAR file -----------"
+	cp -r ${project_dir} ~/automate/${project}
+	cd ~/automate
+	tar -cvzf ${project}.tar ${project}
+}
+
+# Push the backup tar to the remote server using "expect"
+push_backup() {
+	echo "------------ Sending Backup to remote server -----------"
+	if [[ -z $server_key_file ]]; then
+		expect -c "
+			set timeout -1
+			spawn scp -o StrictHostKeyChecking=no $backup_file ${server_user}@${server_ip}:${server_path}
+			expect password: { send $server_pass\r }
+			expect '100%'
+			sleep 1
+			exit
+		"
+	else
+		scp -i ${server_key_file} -o StrictHostKeyChecking=no $backup_file ${server_user}@${server_ip}:${server_path}
+	fi
+}
+
+clean_up() {
+	echo "------ Cleaning UP --------"
+	rm $backup_file
+	rm -rf ~/automate/${project}
+}
+
+# Get file size of the Project TAR
+file_size() {
+	ls -lah $backup_file | grep -o '[0-9]\+[a-zA-Z]'
+}
+
+# Log the backup process
+logging() {
+	echo "--------- Logging ----------"
+	output=`date`
+	filename="`date +%Y-%m-%d`.txt"
+	mkdir -p ~/automate/logs ~/automate/logs/${project}
+	bkFile=~/automate/logs/${project}/${filename}
+	
+	touch $bkFile
+	fSize=$(file_size)
+	echo "Backup: '$project' Size: $fSize (Server: $server_ip, path: $server_path) Completed on $output" >> $bkFile
+}
+
+backup_mysql
+make_tar
+push_backup
+logging
+clean_up
